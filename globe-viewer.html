@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Globe - Den Haag & Zoetermeer Locaties</title>
+    <script src="https://unpkg.com/cesium@1.116/Build/Cesium/Cesium.js"></script>
+    <link href="https://unpkg.com/cesium@1.116/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+        #cesiumContainer { width: 100vw; height: 100vh; position: relative; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                   background: rgba(0,0,0,0.9); color: white; padding: 30px; border-radius: 12px; 
+                   z-index: 1000; font-size: 18px; text-align: center; min-width: 300px; }
+        #loading .spinner { border: 4px solid #333; border-top: 4px solid #e74c3c; border-radius: 50%; 
+                            width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #infoPanel { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.98); 
+                     padding: 15px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); 
+                     z-index: 100; max-width: 380px; max-height: 75vh; overflow-y: auto; }
+        #infoPanel h3 { margin: 0 0 12px 0; font-size: 16px; color: #2c3e50; display: flex; align-items: center; gap: 8px; }
+        #infoPanel .location-item { padding: 10px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.2s; }
+        #infoPanel .location-item:hover { background: #fafafa; }
+        #infoPanel .location-item.selected { background: #ffeaea; border-left: 3px solid #e74c3c; }
+        #infoPanel .location-name { font-weight: 600; font-size: 13px; color: #2c3e50; }
+        #infoPanel .location-details { font-size: 11px; color: #7f8c8d; margin-top: 4px; line-height: 1.4; }
+        #infoPanel .location-details a { color: #3498db; text-decoration: none; }
+        #infoPanel .location-details a:hover { text-decoration: underline; }
+        #stats { position: absolute; bottom: 20px; left: 20px; background: rgba(44,62,80,0.9); 
+                 color: white; padding: 15px 20px; border-radius: 10px; z-index: 100; font-size: 13px; line-height: 1.8; }
+        #filterPanel { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.98); 
+                       padding: 15px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); 
+                       z-index: 100; width: 280px; max-height: 75vh; overflow-y: auto; }
+        #filterPanel h4 { margin: 0 0 12px 0; font-size: 14px; color: #2c3e50; display: flex; align-items: center; gap: 8px; }
+        #filterPanel label { display: block; margin: 6px 0; font-size: 12px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; }
+        #filterPanel label:hover { background: #f5f5f5; }
+        #filterPanel input[type="checkbox"] { margin-right: 8px; accent-color: #e74c3c; }
+        #searchInput { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+        #searchInput:focus { outline: none; border-color: #e74c3c; box-shadow: 0 0 0 3px rgba(231,76,60,0.15); }
+        .category-count { color: #95a5a6; font-weight: normal; font-size: 11px; }
+        .btn-clear { width: 100%; padding: 8px; margin-top: 10px; background: #ecf0f1; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; color: #7f8c8d; }
+        .btn-clear:hover { background: #e74c3c; color: white; }
+        #fileInput { display: none; }
+        .file-drop-zone { border: 2px dashed #e74c3c; border-radius: 10px; padding: 40px; text-align: center; 
+                          background: rgba(231,76,60,0.1); margin-bottom: 20px; cursor: pointer; }
+        .file-drop-zone:hover { background: rgba(231,76,60,0.2); }
+        .file-drop-zone.dragover { background: rgba(231,76,60,0.3); border-color: #c0392b; }
+        
+        /* Detail popup */
+        #detailPopup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                       background: white; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.3); 
+                       z-index: 2000; min-width: 320px; max-width: 400px; padding: 20px; display: none; }
+        #detailPopup .close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; 
+                                   font-size: 20px; cursor: pointer; color: #999; line-height: 1; }
+        #detailPopup .close-btn:hover { color: #e74c3c; }
+        #detailPopup h3 { margin: 0 0 12px 0; color: #2c3e50; font-size: 16px; }
+        #detailPopup .detail-row { display: flex; margin: 8px 0; font-size: 13px; }
+        #detailPopup .detail-label { font-weight: 600; color: #555; min-width: 90px; }
+        #detailPopup .detail-value { color: #333; flex: 1; word-break: break-word; }
+        #detailPopup .detail-value a { color: #3498db; text-decoration: none; }
+        #detailPopup .detail-value a:hover { text-decoration: underline; }
+        #detailPopup .btn-fly { width: 100%; margin-top: 15px; padding: 10px; background: #e74c3c; color: white; 
+                                 border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+        #detailPopup .btn-fly:hover { background: #c0392b; }
+        #detailOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                         background: rgba(0,0,0,0.4); z-index: 1999; display: none; }
+        
+        /* Load source indicator */
+        #loadSource { font-size: 12px; color: #aaa; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <div id="loading" style="display:none;">
+        <div class="spinner"></div>
+        <div id="loadMsg">Initialiseren...</div>
+        <div id="loadSource"></div>
+    </div>
+    
+    <div id="detailOverlay" onclick="closeDetailPopup()"></div>
+    <div id="detailPopup">
+        <button class="close-btn" onclick="closeDetailPopup()">×</button>
+        <h3 id="popupName"></h3>
+        <div id="popupDetails"></div>
+        <button class="btn-fly" onclick="flyToSelected()">🎯 Vlieg naar locatie</button>
+    </div>
+    
+    <!-- File drop zone - shown before CSV loaded -->
+    <div id="dropZone" class="file-drop-zone" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2000;min-width:400px;display:none;">
+        <h3 style="margin:0 0 10px;color:#e74c3c;">📄 CSV bestand laden</h3>
+        <p style="margin:0 0 15px;color:#666;">Sleep het CSV bestand hierheen of klik om te selecteren</p>
+        <p style="font-size:12px;color:#999;">Bestand: osm-denhaag-zoetermeer-2026-11-16.csv</p>
+        <input type="file" id="fileInput" accept=".csv" style="display:none;">
+    </div>
+    
+    <div id="filterPanel" style="display:none;">
+        <h4>🔍 Filters</h4>
+        <input type="text" id="searchInput" placeholder="Zoek op naam, adres of categorie...">
+        <div id="categoryFilters"></div>
+        <button class="btn-clear" onclick="clearFilters()">Filters wissen</button>
+    </div>
+    
+    <div id="infoPanel" style="display:none;">
+        <h3>📍 Locaties <span id="visibleCount">0</span></h3>
+        <div id="locationList"></div>
+    </div>
+    
+    <div id="stats" style="display:none;">
+        <div>Totaal: <strong id="totalCount">0</strong> locaties</div>
+        <div>Gefilterd: <strong id="filteredCount">0</strong></div>
+    </div>
+
+    <script>
+        // ========== CONFIG ==========
+        const GITHUB_CSV_URL = 'https://raw.githubusercontent.com/rrumeerd-sirk/testy/main/osm-denhaag-zoetermeer-2026-11-16.csv';
+        const LOCAL_CSV_PATH = 'osm-denhaag-zoetermeer-2026-11-16.csv';
+        
+        // ========== STATE ==========
+        let allLocations = [];
+        let filteredLocations = [];
+        let entities = [];
+        let viewer = null;
+        let selectedEntity = null;
+        let hoveredEntity = null;
+        let categories = new Set();
+        let activeCategories = new Set();
+        
+        // ========== INIT ==========
+        function init() {
+            setupFileDropZone();
+            loadCSV();
+        }
+        
+        async function loadCSV() {
+            const msg = document.getElementById('loadMsg');
+            const sourceEl = document.getElementById('loadSource');
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('dropZone').style.display = 'none';
+            
+            // Try GitHub first
+            msg.textContent = 'CSV ophalen van GitHub...';
+            sourceEl.textContent = 'Bron: GitHub (rrumeerd-sirk/testy)';
+            
+            try {
+                const response = await fetch(GITHUB_CSV_URL, { 
+                    cache: 'no-cache',
+                    headers: { 'Accept': 'text/csv' }
+                });
+                if (response.ok) {
+                    const csvText = await response.text();
+                    if (csvText.length > 1000) { // Basic validation
+                        msg.textContent = 'CSV parsen...';
+                        parseCSV(csvText);
+                        sourceEl.textContent = '✓ Geladen van GitHub';
+                        initCesium();
+                        return;
+                    }
+                }
+                throw new Error(`HTTP ${response.status}`);
+            } catch (e) {
+                console.log('GitHub fetch failed, trying local:', e.message);
+            }
+            
+            // Try local file
+            msg.textContent = 'Lokaal bestand laden...';
+            sourceEl.textContent = 'Bron: Lokaal bestand';
+            
+            try {
+                const response = await fetch(LOCAL_CSV_PATH, { cache: 'no-cache' });
+                if (response.ok) {
+                    const csvText = await response.text();
+                    if (csvText.length > 1000) {
+                        msg.textContent = 'CSV parsen...';
+                        parseCSV(csvText);
+                        sourceEl.textContent = '✓ Geladen van lokaal bestand';
+                        initCesium();
+                        return;
+                    }
+                }
+                throw new Error(`HTTP ${response.status}`);
+            } catch (e) {
+                console.log('Local fetch failed:', e.message);
+            }
+            
+            // Both failed - show drop zone
+            msg.innerHTML = '⚠️ Kon CSV niet automatisch laden';
+            sourceEl.innerHTML = 'Sleep het bestand hierheen of klik om te selecteren';
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dropZone').style.display = 'block';
+        }
+        
+        function setupFileDropZone() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+            });
+            
+            dropZone.addEventListener('drop', handleDrop, false);
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFileSelect);
+        }
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length) handleFile(files[0]);
+        }
+        
+        function handleFileSelect(e) {
+            if (e.target.files.length) handleFile(e.target.files[0]);
+        }
+        
+        function handleFile(file) {
+            if (!file.name.endsWith('.csv')) {
+                alert('Selecteer een CSV bestand');
+                return;
+            }
+            
+            document.getElementById('dropZone').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('loadMsg').textContent = 'Bestand lezen...';
+            document.getElementById('loadSource').textContent = 'Bron: Uploaded bestand';
+            
+            const reader = new FileReader();
+            reader.onload = e => {
+                parseCSV(e.target.result);
+                initCesium();
+            };
+            reader.readAsText(file);
+        }
+        
+        function parseCSV(csvText) {
+            const msg = document.getElementById('loadMsg');
+            msg.textContent = 'CSV parsen...';
+            
+            const lines = csvText.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+            
+            const latIdx = headers.indexOf('Lat');
+            const lonIdx = headers.indexOf('Lon');
+            const nameIdx = headers.indexOf('Naam');
+            const typeIdx = headers.indexOf('Type');
+            const catIdx = headers.indexOf('Categorie');
+            const addressIdx = headers.indexOf('Adres');
+            const gemeenteIdx = headers.indexOf('Gemeente');
+            const websiteIdx = headers.indexOf('Website');
+            const phoneIdx = headers.indexOf('Telefoon');
+            const hoursIdx = headers.indexOf('Openingstijden');
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length < headers.length) continue;
+                
+                const lat = parseFloat(values[latIdx]);
+                const lon = parseFloat(values[lonIdx]);
+                if (isNaN(lat) || isNaN(lon)) continue;
+                
+                const cat = values[catIdx]?.replace(/"/g, '') || 'onbekend';
+                categories.add(cat);
+                
+                allLocations.push({
+                    id: values[0]?.replace(/"/g, ''),
+                    name: values[nameIdx]?.replace(/"/g, '') || 'Onbekend',
+                    type: values[typeIdx]?.replace(/"/g, '') || '',
+                    category: cat,
+                    address: values[addressIdx]?.replace(/"/g, '') || '',
+                    gemeente: values[gemeenteIdx]?.replace(/"/g, '') || '',
+                    website: values[websiteIdx]?.replace(/"/g, '') || '',
+                    phone: values[phoneIdx]?.replace(/"/g, '') || '',
+                    hours: values[hoursIdx]?.replace(/"/g, '') || '',
+                    lat, lon
+                });
+            }
+            
+            activeCategories = new Set(categories);
+            buildCategoryFilters();
+            applyFilters();
+            document.getElementById('totalCount').textContent = allLocations.length.toLocaleString('nl-NL');
+            
+            // Show UI panels
+            document.getElementById('filterPanel').style.display = 'block';
+            document.getElementById('infoPanel').style.display = 'block';
+            document.getElementById('stats').style.display = 'block';
+        }
+        
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+                    else inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
+                else current += char;
+            }
+            result.push(current);
+            return result;
+        }
+        
+        async function initCesium() {
+            const msg = document.getElementById('loadMsg');
+            msg.textContent = 'Cesium laden...';
+            
+            // Disable Cesium Ion completely BEFORE creating viewer
+            Cesium.Ion.defaultAccessToken = '';
+            Cesium.Ion.defaultServer = undefined;
+            
+            // Create minimal viewer with NO terrain, NO default imagery
+            viewer = new Cesium.Viewer('cesiumContainer', {
+                terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+                scene3DOnly: true,
+                selectionIndicator: false,
+                infoBox: false,
+                baseLayerPicker: false,
+                geocoder: false,
+                homeButton: true,
+                sceneModePicker: false,
+                navigationHelpButton: false,
+                animation: false,
+                timeline: false,
+                fullscreenButton: true,
+                vrButton: false,
+                imageryProvider: false,
+                skyBox: false,
+                skyAtmosphere: false
+            });
+            
+            // Add OSM imagery manually
+            viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                subdomains: ['a', 'b', 'c'],
+                credit: '© OpenStreetMap contributors',
+                maximumLevel: 19
+            }));
+            
+            // Add OSM Buildings
+            msg.textContent = '3D gebouwen laden...';
+            try {
+                const buildings = await Cesium.createOsmBuildingsAsync();
+                viewer.scene.primitives.add(buildings);
+                console.log('OSM Buildings loaded');
+            } catch (e) {
+                console.warn('OSM Buildings failed:', e);
+            }
+            
+            // Camera to Den Haag
+            viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(4.3, 52.07, 4000),
+                orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_FOUR, roll: 0 }
+            });
+            
+            viewer.scene.globe.depthTestAgainstTerrain = true;
+            viewer.scene.globe.enableLighting = true;
+            
+            msg.textContent = 'Entiteiten aanmaken...';
+            await createEntities();
+            setupClickHandler();
+            setupHoverHandler();
+            
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function buildCategoryFilters() {
+            const container = document.getElementById('categoryFilters');
+            container.innerHTML = '';
+            const sortedCats = Array.from(categories).sort((a,b) => 
+                allLocations.filter(l => l.category === b).length - 
+                allLocations.filter(l => l.category === a).length
+            );
+            
+            sortedCats.forEach(cat => {
+                const count = allLocations.filter(l => l.category === cat).length;
+                const label = document.createElement('label');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = true;
+                checkbox.value = cat;
+                checkbox.onchange = () => {
+                    checkbox.checked ? activeCategories.add(cat) : activeCategories.delete(cat);
+                    applyFilters();
+                };
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(` ${cat} `));
+                const span = document.createElement('span');
+                span.className = 'category-count';
+                span.textContent = `(${count.toLocaleString('nl-NL')})`;
+                label.appendChild(span);
+                container.appendChild(label);
+            });
+        }
+        
+        function applyFilters() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            
+            filteredLocations = allLocations.filter(loc => {
+                const matchesCategory = activeCategories.has(loc.category);
+                const matchesSearch = !searchTerm || 
+                    loc.name.toLowerCase().includes(searchTerm) ||
+                    loc.address.toLowerCase().includes(searchTerm) ||
+                    loc.category.toLowerCase().includes(searchTerm) ||
+                    loc.type.toLowerCase().includes(searchTerm);
+                return matchesCategory && matchesSearch;
+            });
+            
+            updateEntityVisibility();
+            updateLocationList();
+            updateStats();
+        }
+        
+        function clearFilters() {
+            document.getElementById('searchInput').value = '';
+            activeCategories = new Set(categories);
+            document.querySelectorAll('#categoryFilters input[type="checkbox"]').forEach(cb => cb.checked = true);
+            applyFilters();
+        }
+        
+        async function createEntities() {
+            const msg = document.getElementById('loadMsg');
+            
+            const batchSize = 500;
+            for (let i = 0; i < allLocations.length; i += batchSize) {
+                const batch = allLocations.slice(i, i + batchSize);
+                batch.forEach((loc, batchIdx) => {
+                    const idx = i + batchIdx;
+                    entities[idx] = viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(loc.lon, loc.lat, 15),
+                        point: {
+                            pixelSize: 9,
+                            color: Cesium.Color.RED.withAlpha(0.95),
+                            outlineColor: Cesium.Color.WHITE,
+                            outlineWidth: 1.5,
+                            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                            disableDepthTestDistance: Number.POSITIVE_INFINITY
+                        },
+                        label: {
+                            text: loc.name,
+                            font: '12px "Segoe UI", sans-serif',
+                            fillColor: Cesium.Color.WHITE,
+                            outlineColor: Cesium.Color.BLACK,
+                            outlineWidth: 2,
+                            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                            pixelOffset: new Cesium.Cartesian2(0, -16),
+                            show: false,
+                            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                            backdrop: {
+                                color: Cesium.Color.RED.withAlpha(0.8),
+                                padding: new Cesium.Cartesian2(6, 3)
+                            }
+                        },
+                        properties: { index: idx, ...loc },
+                        show: true
+                    });
+                });
+                if (i + batchSize < allLocations.length) {
+                    msg.textContent = `Entiteiten aanmaken (${Math.min(i + batchSize, allLocations.length).toLocaleString('nl-NL')}/${allLocations.length.toLocaleString('nl-NL')})...`;
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+            msg.textContent = 'Klaar!';
+        }
+        
+        function updateEntityVisibility() {
+            const filteredIds = new Set(filteredLocations.map(l => l.id));
+            entities.forEach((entity, idx) => {
+                if (entity) entity.show = filteredIds.has(allLocations[idx].id);
+            });
+        }
+        
+        function updateLocationList() {
+            const list = document.getElementById('locationList');
+            list.innerHTML = '';
+            
+            const displayLocations = filteredLocations.slice(0, 300);
+            displayLocations.forEach(loc => {
+                const item = document.createElement('div');
+                item.className = 'location-item';
+                item.dataset.id = loc.id;
+                item.innerHTML = `
+                    <div class="location-name">${escapeHtml(loc.name)}</div>
+                    <div class="location-details">
+                        <span style="color:#e74c3c;">●</span> ${escapeHtml(loc.category)}
+                        ${loc.type ? ` • ${escapeHtml(loc.type)}` : ''}
+                        <br>${escapeHtml(loc.address)}
+                        ${loc.website && loc.website !== 'none' ? `<br><a href="${escapeHtml(loc.website)}" target="_blank">🌐 Website</a>` : ''}
+                        ${loc.hours ? `<br>🕐 ${escapeHtml(loc.hours)}` : ''}
+                    </div>
+                `;
+                item.onclick = () => showDetailPopup(loc);
+                list.appendChild(item);
+            });
+            
+            if (filteredLocations.length > 300) {
+                const more = document.createElement('div');
+                more.className = 'location-item';
+                more.style.fontStyle = 'italic';
+                more.style.color = '#95a5a6';
+                more.style.textAlign = 'center';
+                more.textContent = `... en nog ${(filteredLocations.length - 300).toLocaleString('nl-NL')} locaties`;
+                list.appendChild(more);
+            }
+            
+            // Highlight selected in list
+            if (selectedEntity) {
+                const selectedItem = list.querySelector(`[data-id="${selectedEntity.properties.id}"]`);
+                if (selectedItem) selectedItem.classList.add('selected');
+            }
+        }
+        
+        function showDetailPopup(loc) {
+            selectedEntity = entities.find(e => e.properties.id === loc.id) || null;
+            
+            const popup = document.getElementById('detailPopup');
+            const overlay = document.getElementById('detailOverlay');
+            
+            document.getElementById('popupName').textContent = loc.name;
+            
+            let detailsHtml = `
+                <div class="detail-row"><span class="detail-label">Categorie:</span><span class="detail-value">${escapeHtml(loc.category)}</span></div>
+            `;
+            if (loc.type) detailsHtml += `<div class="detail-row"><span class="detail-label">Type:</span><span class="detail-value">${escapeHtml(loc.type)}</span></div>`;
+            detailsHtml += `<div class="detail-row"><span class="detail-label">Adres:</span><span class="detail-value">${escapeHtml(loc.address)}</span></div>`;
+            if (loc.phone) detailsHtml += `<div class="detail-row"><span class="detail-label">Telefoon:</span><span class="detail-value">${escapeHtml(loc.phone)}</span></div>`;
+            if (loc.website && loc.website !== 'none') detailsHtml += `<div class="detail-row"><span class="detail-label">Website:</span><span class="detail-value"><a href="${escapeHtml(loc.website)}" target="_blank">${escapeHtml(loc.website)}</a></span></div>`;
+            if (loc.hours) detailsHtml += `<div class="detail-row"><span class="detail-label">Open:</span><span class="detail-value">${escapeHtml(loc.hours)}</span></div>`;
+            
+            document.getElementById('popupDetails').innerHTML = detailsHtml;
+            
+            popup.style.display = 'block';
+            overlay.style.display = 'block';
+            
+            // Highlight in list
+            updateLocationList();
+            
+            // Highlight the point on map
+            if (selectedEntity) {
+                selectedEntity.point.pixelSize = 16;
+                selectedEntity.point.color = Cesium.Color.ORANGE.withAlpha(1);
+                selectedEntity.label.show = true;
+            }
+        }
+        
+        function closeDetailPopup() {
+            document.getElementById('detailPopup').style.display = 'none';
+            document.getElementById('detailOverlay').style.display = 'none';
+            
+            // Reset point style
+            if (selectedEntity) {
+                selectedEntity.point.pixelSize = 9;
+                selectedEntity.point.color = Cesium.Color.RED.withAlpha(0.95);
+                selectedEntity.label.show = false;
+                selectedEntity = null;
+            }
+            
+            updateLocationList();
+        }
+        
+        function flyToSelected() {
+            if (!selectedEntity) return;
+            
+            const loc = selectedEntity.properties;
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(loc.lon, loc.lat, 600),
+                orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_THREE, roll: 0 },
+                duration: 1.5
+            });
+        }
+        
+        function flyToLocation(loc) {
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(loc.lon, loc.lat, 600),
+                orientation: { heading: 0, pitch: -Cesium.Math.PI_OVER_THREE, roll: 0 },
+                duration: 1.5
+            });
+        }
+        
+        function updateStats() {
+            document.getElementById('filteredCount').textContent = filteredLocations.length.toLocaleString('nl-NL');
+            document.getElementById('visibleCount').textContent = filteredLocations.length.toLocaleString('nl-NL');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function setupClickHandler() {
+            const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+            handler.setInputAction(movement => {
+                const picked = viewer.scene.pick(movement.position);
+                if (picked && picked.id && picked.id.properties) {
+                    // Clicked on a location point
+                    showDetailPopup(picked.id.properties);
+                } else {
+                    // Clicked on empty space - close popup
+                    closeDetailPopup();
+                }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+        
+        function setupHoverHandler() {
+            const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+            handler.setInputAction(movement => {
+                const picked = viewer.scene.pick(movement.endPosition);
+                
+                // Clear previous hover
+                if (hoveredEntity && hoveredEntity !== picked?.id) {
+                    hoveredEntity.label.show = false;
+                    // Reset point if not selected
+                    if (hoveredEntity !== selectedEntity) {
+                        hoveredEntity.point.pixelSize = 9;
+                        hoveredEntity.point.color = Cesium.Color.RED.withAlpha(0.95);
+                    }
+                }
+                
+                if (picked && picked.id && picked.id.properties) {
+                    hoveredEntity = picked.id;
+                    // Show label on hover
+                    if (hoveredEntity !== selectedEntity) {
+                        hoveredEntity.label.show = true;
+                        hoveredEntity.point.pixelSize = 12;
+                        hoveredEntity.point.color = Cesium.Color.ORANGE.withAlpha(1);
+                    }
+                } else {
+                    hoveredEntity = null;
+                }
+            }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+        }
+        
+        // Event listeners
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+        
+        // Close popup on Escape key
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeDetailPopup();
+        });
+        
+        // Start
+        document.addEventListener('DOMContentLoaded', init);
+        
+        // Error handling
+        window.addEventListener('error', e => {
+            console.error('Error:', e.message);
+            document.getElementById('loading').innerHTML = `<div style="color:#e74c3c;">Fout: ${e.message}<br>Check console (F12) voor details</div>`;
+        });
+    </script>
+</body>
+</html>
